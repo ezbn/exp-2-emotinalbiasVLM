@@ -1,0 +1,418 @@
+---
+title: "Analysis of Anxiety-Induced Changes in LLM Shopping Behavior"
+subtitle: "Health Score Analysis"
+author: "Tobias Spiller & Ziv Ben-Zion"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 5
+    toc_float: yes
+---
+
+# Set Up
+```{r Setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = TRUE,
+	warning = TRUE
+)
+```
+
+```{r Load libraries, include=FALSE, results='hide'}
+# Data handling
+library(tidyverse)
+
+# Statistical analysis
+library(broom)
+library(effectsize)
+
+# Tables
+library(gt)
+library(gtsummary)
+```
+
+## Data Preparation
+```{r Data import, message=FALSE, warning=FALSE, include=FALSE, results='hide'}
+# Read data
+df <- read.csv("raw_data.csv")
+```
+
+```{r Data preparation, message=FALSE, warning=FALSE, include=FALSE, results='hide'}
+# Calculate change scores and prepare data
+df_processed <- df %>%
+  rename(
+    pre_score = pre.score,
+    post_score = post.score
+  ) %>%
+  mutate(
+    # Calculate change in health score
+    delta_score = post_score - pre_score,
+    
+    # Create factor variables with appropriate levels
+    LLM = factor(LLM),
+    Intervention = factor(Intervention, 
+                         levels = c("neutral (brief)", "accident", "ambush", 
+                                   "disaster", "interpersonal", "military")),
+    Budget = factor(Budget, levels = c(27, 54, 108)),
+    
+    # Create condition identifier for the 45 unique conditions
+    condition = paste(LLM, Budget, Intervention, sep = "_"),
+    
+    # Binary indicator for anxiety vs control
+    is_anxiety = ifelse(Intervention == "neutral (brief)", "Control", "Anxiety")
+  )
+
+# Separate anxiety conditions from control
+df_anxiety <- df_processed %>% 
+  filter(is_anxiety != "Control")
+
+df_control <- df_processed %>% 
+  filter(is_anxiety == "Control")
+```
+
+# Analysis
+
+## Results Section 1: Condition-Level Analysis
+```{r Condition level tests, echo=FALSE, message=FALSE}
+# Perform paired t-tests for each unique condition (45 conditions)
+condition_results <- df_anxiety %>%
+  group_by(LLM, Budget, Intervention) %>%
+  summarise(
+    n = n(),
+    mean_pre = mean(pre_score),
+    sd_pre = sd(pre_score),
+    mean_post = mean(post_score),
+    sd_post = sd(post_score),
+    mean_delta = mean(delta_score),
+    sd_delta = sd(delta_score),
+    
+    # Paired t-test (one-sided: H1: delta < 0)
+    t_statistic = t.test(delta_score, mu = 0, alternative = "less")$statistic,
+    t_p_value = t.test(delta_score, mu = 0, alternative = "less")$p.value,
+    
+    # Wilcoxon signed-rank test (one-sided)
+    wilcox_statistic = wilcox.test(delta_score, mu = 0, alternative = "less")$statistic,
+    wilcox_p_value = wilcox.test(delta_score, mu = 0, alternative = "less")$p.value,
+    
+    # 95% CI for delta
+    ci_lower = t.test(delta_score)$conf.int[1],
+    ci_upper = t.test(delta_score)$conf.int[2],
+    
+    # Cohen's d (paired)
+    cohens_d = mean(delta_score) / sd(delta_score),
+    
+    .groups = 'drop'
+  ) %>%
+  # Add FDR correction for multiple comparisons
+  mutate(
+    t_p_adj = p.adjust(t_p_value, method = "BH"),
+    wilcox_p_adj = p.adjust(wilcox_p_value, method = "BH")
+  )
+
+# Display results table
+condition_results %>%
+  select(LLM, Budget, Intervention, n, mean_delta, sd_delta, 
+         cohens_d, t_p_value, t_p_adj) %>%
+  gt() %>%
+  tab_header(
+    title = "Condition-Level Analysis Results",
+    subtitle = "45 Unique Conditions (3 LLMs × 3 Budgets × 5 Interventions)"
+  ) %>%
+  fmt_number(columns = c(mean_delta, sd_delta, cohens_d), decimals = 3) %>%
+  fmt_number(columns = c(t_p_value, t_p_adj), decimals = 4) %>%
+  cols_label(
+    mean_delta = "Mean Δ",
+    sd_delta = "SD Δ",
+    cohens_d = "Cohen's d",
+    t_p_value = "p-value",
+    t_p_adj = "p-value (FDR)"
+  )
+```
+
+## Results Section 2: Pooled Analysis by Intervention Type
+```{r Pooled intervention analysis, echo=FALSE, message=FALSE}
+# Pool across all LLMs and budgets for each intervention type
+intervention_results <- df_anxiety %>%
+  group_by(Intervention) %>%
+  summarise(
+    n = n(),
+    mean_pre = mean(pre_score),
+    sd_pre = sd(pre_score),
+    mean_post = mean(post_score),
+    sd_post = sd(post_score),
+    mean_delta = mean(delta_score),
+    sd_delta = sd(delta_score),
+    
+    # Paired t-test (one-sided: H1: delta < 0)
+    t_statistic = t.test(delta_score, mu = 0, alternative = "less")$statistic,
+    t_p_value = t.test(delta_score, mu = 0, alternative = "less")$p.value,
+    
+    # Wilcoxon signed-rank test (one-sided)
+    wilcox_statistic = wilcox.test(delta_score, mu = 0, alternative = "less")$statistic,
+    wilcox_p_value = wilcox.test(delta_score, mu = 0, alternative = "less")$p.value,
+    
+    # 95% CI for delta
+    ci_lower = t.test(delta_score)$conf.int[1],
+    ci_upper = t.test(delta_score)$conf.int[2],
+    
+    # Cohen's d (paired)
+    cohens_d = mean(delta_score) / sd(delta_score),
+    
+    .groups = 'drop'
+  ) %>%
+  # Add FDR correction
+  mutate(
+    t_p_adj = p.adjust(t_p_value, method = "BH"),
+    wilcox_p_adj = p.adjust(wilcox_p_value, method = "BH")
+  )
+
+# Display pooled intervention results
+intervention_results %>%
+  select(Intervention, n, mean_delta, sd_delta, cohens_d, 
+         ci_lower, ci_upper, t_p_value, t_p_adj) %>%
+  gt() %>%
+  tab_header(
+    title = "Pooled Analysis by Intervention Type",
+    subtitle = "n=450 per intervention (pooled across LLMs and budgets)"
+  ) %>%
+  fmt_number(columns = c(mean_delta, sd_delta, cohens_d, ci_lower, ci_upper), decimals = 3) %>%
+  fmt_number(columns = c(t_p_value, t_p_adj), decimals = 4) %>%
+  cols_label(
+    mean_delta = "Mean Δ",
+    sd_delta = "SD Δ",
+    cohens_d = "Cohen's d",
+    ci_lower = "95% CI Lower",
+    ci_upper = "95% CI Upper",
+    t_p_value = "p-value",
+    t_p_adj = "p-value (FDR)"
+  )
+```
+
+## Results Section 3: Stratified Analysis
+
+### By LLM Model
+```{r Stratified by LLM, echo=FALSE, message=FALSE}
+# Stratified analysis by LLM (pooled across interventions and budgets)
+llm_results <- df_anxiety %>%
+  group_by(LLM) %>%
+  summarise(
+    n = n(),
+    mean_pre = mean(pre_score),
+    sd_pre = sd(pre_score),
+    mean_post = mean(post_score),
+    sd_post = sd(post_score),
+    mean_delta = mean(delta_score),
+    sd_delta = sd(delta_score),
+    
+    # Paired t-test (one-sided: H1: delta < 0)
+    t_statistic = t.test(delta_score, mu = 0, alternative = "less")$statistic,
+    t_p_value = t.test(delta_score, mu = 0, alternative = "less")$p.value,
+    
+    # Cohen's d (paired)
+    cohens_d = mean(delta_score) / sd(delta_score),
+    
+    # 95% CI
+    ci_lower = t.test(delta_score)$conf.int[1],
+    ci_upper = t.test(delta_score)$conf.int[2],
+    
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    t_p_adj = p.adjust(t_p_value, method = "BH")
+  )
+
+# Display LLM stratified results
+llm_results %>%
+  select(LLM, n, mean_delta, sd_delta, cohens_d, ci_lower, ci_upper, t_p_value, t_p_adj) %>%
+  gt() %>%
+  tab_header(
+    title = "Stratified Analysis by LLM Model",
+    subtitle = "Pooled across all anxiety interventions and budgets"
+  ) %>%
+  fmt_number(columns = c(mean_delta, sd_delta, cohens_d, ci_lower, ci_upper), decimals = 3) %>%
+  fmt_number(columns = c(t_p_value, t_p_adj), decimals = 4) %>%
+  cols_label(
+    mean_delta = "Mean Δ",
+    sd_delta = "SD Δ",
+    cohens_d = "Cohen's d",
+    ci_lower = "95% CI Lower",
+    ci_upper = "95% CI Upper",
+    t_p_value = "p-value",
+    t_p_adj = "p-value (FDR)"
+  )
+```
+
+### By Budget Condition
+```{r Stratified by Budget, echo=FALSE, message=FALSE}
+# Stratified analysis by Budget (pooled across interventions and LLMs)
+budget_results <- df_anxiety %>%
+  group_by(Budget) %>%
+  summarise(
+    n = n(),
+    mean_pre = mean(pre_score),
+    sd_pre = sd(pre_score),
+    mean_post = mean(post_score),
+    sd_post = sd(post_score),
+    mean_delta = mean(delta_score),
+    sd_delta = sd(delta_score),
+    
+    # Paired t-test (one-sided: H1: delta < 0)
+    t_statistic = t.test(delta_score, mu = 0, alternative = "less")$statistic,
+    t_p_value = t.test(delta_score, mu = 0, alternative = "less")$p.value,
+    
+    # Cohen's d (paired)
+    cohens_d = mean(delta_score) / sd(delta_score),
+    
+    # 95% CI
+    ci_lower = t.test(delta_score)$conf.int[1],
+    ci_upper = t.test(delta_score)$conf.int[2],
+    
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    t_p_adj = p.adjust(t_p_value, method = "BH")
+  )
+
+# Display Budget stratified results
+budget_results %>%
+  select(Budget, n, mean_delta, sd_delta, cohens_d, ci_lower, ci_upper, t_p_value, t_p_adj) %>%
+  gt() %>%
+  tab_header(
+    title = "Stratified Analysis by Budget Condition",
+    subtitle = "Pooled across all anxiety interventions and LLMs"
+  ) %>%
+  fmt_number(columns = c(mean_delta, sd_delta, cohens_d, ci_lower, ci_upper), decimals = 3) %>%
+  fmt_number(columns = c(t_p_value, t_p_adj), decimals = 4) %>%
+  cols_label(
+    mean_delta = "Mean Δ",
+    sd_delta = "SD Δ",
+    cohens_d = "Cohen's d",
+    ci_lower = "95% CI Lower",
+    ci_upper = "95% CI Upper",
+    t_p_value = "p-value",
+    t_p_adj = "p-value (FDR)"
+  )
+```
+
+### LLM × Budget Interaction
+```{r LLM by Budget interaction, echo=FALSE, message=FALSE}
+# Analysis by LLM and Budget combination
+llm_budget_results <- df_anxiety %>%
+  group_by(LLM, Budget) %>%
+  summarise(
+    n = n(),
+    mean_delta = mean(delta_score),
+    sd_delta = sd(delta_score),
+    
+    # Paired t-test (one-sided: H1: delta < 0)
+    t_p_value = t.test(delta_score, mu = 0, alternative = "less")$p.value,
+    
+    # Cohen's d (paired)
+    cohens_d = mean(delta_score) / sd(delta_score),
+    
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    t_p_adj = p.adjust(t_p_value, method = "BH")
+  )
+
+# Display LLM × Budget results
+llm_budget_results %>%
+  gt() %>%
+  tab_header(
+    title = "LLM × Budget Interaction Analysis",
+    subtitle = "Pooled across all anxiety interventions"
+  ) %>%
+  fmt_number(columns = c(mean_delta, sd_delta, cohens_d), decimals = 3) %>%
+  fmt_number(columns = c(t_p_value, t_p_adj), decimals = 4) %>%
+  cols_label(
+    mean_delta = "Mean Δ",
+    sd_delta = "SD Δ",
+    cohens_d = "Cohen's d",
+    t_p_value = "p-value",
+    t_p_adj = "p-value (FDR)"
+  )
+```
+
+## Results Section 4: Anxiety vs. Control Comparison
+```{r Anxiety vs Control, echo=FALSE, message=FALSE}
+# Compare all anxiety conditions to neutral control
+# Using Welch's t-test for unequal variances
+
+# Overall comparison
+overall_comparison <- t.test(
+  df_anxiety$delta_score,
+  df_control$delta_score,
+  alternative = "less",
+  var.equal = FALSE
+)
+
+# Calculate effect size for overall comparison (manual calculation)
+pooled_sd <- sqrt((sd(df_anxiety$delta_score)^2 + sd(df_control$delta_score)^2) / 2)
+overall_cohens_d <- (mean(df_anxiety$delta_score) - mean(df_control$delta_score)) / pooled_sd
+
+# Summary statistics
+comparison_summary <- data.frame(
+  Group = c("Anxiety (All)", "Control (Neutral)"),
+  n = c(nrow(df_anxiety), nrow(df_control)),
+  mean_delta = c(mean(df_anxiety$delta_score), mean(df_control$delta_score)),
+  sd_delta = c(sd(df_anxiety$delta_score), sd(df_control$delta_score))
+)
+
+# Display comparison results
+comparison_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Anxiety vs. Control Comparison",
+    subtitle = "All anxiety conditions (n=2250) vs. neutral control (n=450)"
+  ) %>%
+  fmt_number(columns = c(mean_delta, sd_delta), decimals = 3) %>%
+  tab_footnote(
+    footnote = paste0(
+      "Welch's t-test: t = ", round(overall_comparison$statistic, 3),
+      ", p = ", round(overall_comparison$p.value, 4),
+      ", Cohen's d = ", round(overall_cohens_d, 3)
+    ),
+    locations = cells_title()
+  )
+```
+```{r Visual, echo=FALSE, message=FALSE}
+# Prepare data for plotting
+plot_data <- df_anxiety %>%
+  group_by(LLM, Budget) %>%
+  summarise(
+    mean_delta = mean(delta_score),
+    se_delta = sd(delta_score) / sqrt(n()),
+    .groups = 'drop'
+  )
+
+# Create the bar plot
+ggplot(plot_data, aes(x = Budget, y = mean_delta, fill = LLM)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.8) +
+  geom_errorbar(aes(ymin = mean_delta - se_delta, ymax = mean_delta + se_delta),
+                position = position_dodge(width = 0.9), width = 0.25) +
+  scale_fill_manual(values = c("ChatGPT 5" = "#1f77b4",
+                               "Claude 3.5-Sonnet" = "#ff7f0e", 
+                               "Gemini 2.5" = "#2ca02c")) +
+  scale_y_continuous(limits = c(-0.14, 0.01), breaks = seq(-0.14, 0, 0.02)) +
+  labs(x = "Shopping Budget ($)",
+       y = "Change in Basket Health Score (BHS)",
+       fill = "LLM") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)
+  ) +
+  scale_x_discrete(labels = c("27" = "Low ($27)", "54" = "Medium ($54)", "108" = "High ($108)"))
+
+# Save last plot as PNG
+ggsave("Figure 3.png", width = 8, height = 6, dpi = 300, bg = "white")
+
+```
