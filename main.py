@@ -349,7 +349,7 @@ class Gemini25LLM(LLMBase):
             "catalog": self._catalog_snapshot(),
             "note": "Return only the JSON per the Output Schema.",
         }
-        prompt = self.system_prompt + "
+        prompt = self.system_prompt
 
 " + json.dumps(payload)
         for p in self.intervention_prompts:
