@@ -349,13 +349,9 @@ class Gemini25LLM(LLMBase):
             "catalog": self._catalog_snapshot(),
             "note": "Return only the JSON per the Output Schema.",
         }
-        prompt = self.system_prompt 
-
-" + json.dumps(payload)
+        prompt = self.system_prompt + "\n\n" + json.dumps(payload)
         for p in self.intervention_prompts:
-            prompt += "
-
-" + p
+            prompt += "\n\n" + p
         resp = model.generate_content(prompt, generation_config={"temperature": self.temperature})
         content = resp.text
         assistant_json = json.loads(content)
