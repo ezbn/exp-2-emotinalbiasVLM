@@ -24,7 +24,7 @@ def run_experiment(
     image_dataset_dir: str,
     sample_size_per_emotion: int = 3,
     output_csv: str = "vlm_visual_priming_results.csv",
-    model_name: str = "qwen2.5-vl:7b",
+    model_name: str = "qwen2.5vl:7b",
     seed: int = 42,
 ):
     random.seed(seed)
@@ -35,7 +35,7 @@ def run_experiment(
     emotions = ["Fear", "Peace", "Happiness", "Sadness"]
 
     results = []
-    vlm = VLMClient(model_name=model_name)
+    vlm = VLMClient(model_name=model_name, host="http://127.0.0.1:11435")
 
     system_prompt = (
         "You are an everyday consumer shopping for groceries under a strict budget constraint. "
