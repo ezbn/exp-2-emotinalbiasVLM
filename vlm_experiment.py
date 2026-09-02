@@ -28,8 +28,8 @@ def run_experiment(
     seed: int = 42,
 ):
     random.seed(seed)
-    shop = ShopAPI()
-    catalog_text = shop.get_catalog_text()
+    shop = ShopAPI.make_dummy_catalog()
+    catalog_text = shop.list_products().to_string()
 
     budgets = [27, 54, 108]
     emotions = ["Fear", "Peace", "Happiness", "Sadness"]
